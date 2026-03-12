@@ -5,6 +5,7 @@
 #include "question_manager.h"
 #include "statistics_exporter.h"
 #include <common/protocol/message_type.h>
+#include <QCoreApplication>
 #include <iostream>
 
 static const uint16_t DEFAULT_PORT = 9000;
@@ -16,7 +17,9 @@ static std::string clampStr(const std::string& s) {
     return s.size() > MAX_STRING_LEN ? s.substr(0, MAX_STRING_LEN) : s;
 }
 
-int main() {
+int main(int argc, char* argv[]) {
+    QCoreApplication app(argc, argv);
+
     UserStore userStore(DATA_DIR + "/users.json");
     SessionManager sessionMgr;
     ClassManager classMgr(DATA_DIR);
@@ -915,6 +918,9 @@ int main() {
     });
 
     std::cout << "Thunder Class Server starting...\n";
-    server.run();
-    return 0;
+    if (!server.start()) {
+        std::cerr << "Failed to start server\n";
+        return 1;
+    }
+    return app.exec();
 }

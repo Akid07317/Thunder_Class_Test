@@ -2,87 +2,12 @@
 // interactions, rapid operations, persistence across restart.
 // Requires: server running on localhost:9000 with clean data/ directory.
 
-#include <common/protocol/protocol.h>
-#include <common/protocol/message_type.h>
+#include "test_socket.h"
 #include <common/model/user.h>
-
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <unistd.h>
-#include <iostream>
-#include <vector>
-#include <cstring>
 #include <thread>
 #include <chrono>
-#include <poll.h>
 
 static int passed = 0, failed = 0;
-
-static int connectToServer(const char* host, uint16_t port) {
-    int fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (fd < 0) { perror("socket"); return -1; }
-
-    sockaddr_in addr{};
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(port);
-    inet_pton(AF_INET, host, &addr.sin_addr);
-
-    if (connect(fd, (sockaddr*)&addr, sizeof(addr)) < 0) {
-        perror("connect");
-        close(fd);
-        return -1;
-    }
-    return fd;
-}
-
-static void sendMsg(int fd, const nlohmann::json& msg) {
-    auto data = Protocol::frame(msg);
-    write(fd, data.data(), data.size());
-}
-
-static nlohmann::json recvMsg(int fd) {
-    std::vector<uint8_t> buffer;
-    uint8_t buf[4096];
-    nlohmann::json result;
-
-    while (true) {
-        ssize_t n = read(fd, buf, sizeof(buf));
-        if (n <= 0) {
-            std::cerr << "Connection closed\n";
-            return {};
-        }
-        buffer.insert(buffer.end(), buf, buf + n);
-        if (Protocol::extractFrame(buffer, result)) {
-            return result;
-        }
-    }
-}
-
-// Non-blocking receive: returns empty json if no message within timeout_ms
-static nlohmann::json tryRecvMsg(int fd, int timeout_ms = 200) {
-    struct pollfd pfd;
-    pfd.fd = fd;
-    pfd.events = POLLIN;
-
-    std::vector<uint8_t> buffer;
-    uint8_t buf[4096];
-    nlohmann::json result;
-
-    while (true) {
-        int ret = poll(&pfd, 1, timeout_ms);
-        if (ret <= 0) return {};  // timeout or error
-
-        ssize_t n = read(fd, buf, sizeof(buf));
-        if (n <= 0) return {};
-
-        buffer.insert(buffer.end(), buf, buf + n);
-        if (Protocol::extractFrame(buffer, result)) {
-            return result;
-        }
-        timeout_ms = 50;  // shorter timeout for subsequent reads
-    }
-}
 
 static void check(const std::string& name, const nlohmann::json& resp, bool expectSuccess) {
     bool ok = resp.value("success", false);
@@ -108,7 +33,7 @@ static int loginAs(const char* host, uint16_t port, const std::string& user, con
     sendMsg(fd, {{"type", "LOGIN_REQ"}, {"username", user}, {"password", pass}});
     auto resp = recvMsg(fd);
     if (!resp.value("success", false)) {
-        close(fd);
+        sockClose(fd);
         return -1;
     }
     return fd;
@@ -143,7 +68,7 @@ int main(int argc, char* argv[]) {
         sendMsg(adminFd, {{"type", "CREATE_USER_REQ"}, {"username", "s3"}, {"password", "pass"},
                           {"name", "Charlie"}, {"role", "STUDENT"}});
         recvMsg(adminFd);
-        close(adminFd);
+        sockClose(adminFd);
     }
     std::cout << "  Setup complete.\n\n";
 
@@ -176,7 +101,7 @@ int main(int argc, char* argv[]) {
         check("2 members before disconnect", memberCount == 2);
 
         // Student 1 disconnects abruptly (simulates crash)
-        close(s1Fd);
+        sockClose(s1Fd);
         std::this_thread::sleep_for(std::chrono::milliseconds(200));
 
         // Verify member count dropped to 1
@@ -200,16 +125,16 @@ int main(int argc, char* argv[]) {
         sendMsg(tFd, {{"type", "END_CLASS_REQ"}, {"classId", classId}});
         recvMsg(tFd);
 
-        // Get summary — Alice should have 2 join/leave pairs (disconnect + rejoin)
+        // Get summary -- Alice should have 2 join/leave pairs (disconnect + rejoin)
         sendMsg(tFd, {{"type", "CLASS_SUMMARY_REQ"}, {"classId", classId}});
         resp = recvMsg(tFd);
         check("Summary succeeds after disconnect/rejoin", resp, true);
         auto students = resp.value("summary", nlohmann::json::object()).value("students", nlohmann::json::array());
         check("Summary has 2 students", students.size() == 2);
 
-        close(s1Fd);
-        close(s2Fd);
-        close(tFd);
+        sockClose(s1Fd);
+        sockClose(s2Fd);
+        sockClose(tFd);
     }
     std::cout << "\n";
 
@@ -284,9 +209,9 @@ int main(int argc, char* argv[]) {
         sendMsg(t2Fd, {{"type", "END_CLASS_REQ"}, {"classId", classB}});
         recvMsg(t2Fd);
 
-        close(s1Fd);
-        close(t1Fd);
-        close(t2Fd);
+        sockClose(s1Fd);
+        sockClose(t1Fd);
+        sockClose(t2Fd);
     }
     std::cout << "\n";
 
@@ -347,7 +272,7 @@ int main(int argc, char* argv[]) {
         check("Random call during active features", resp, true);
         recvMsg(sFd); // notification
 
-        // End class — should auto-stop screen sharing and audio
+        // End class -- should auto-stop screen sharing and audio
         sendMsg(tFd, {{"type", "END_CLASS_REQ"}, {"classId", classId}});
         resp = recvMsg(tFd);
         check("End class with all features active", resp, true);
@@ -365,7 +290,7 @@ int main(int argc, char* argv[]) {
         resp = recvMsg(tFd);
         check("Audio on ENDED class fails", resp, false);
 
-        // Get summary — should reflect all activities
+        // Get summary -- should reflect all activities
         sendMsg(tFd, {{"type", "CLASS_SUMMARY_REQ"}, {"classId", classId}});
         resp = recvMsg(tFd);
         check("Summary after multi-feature class", resp, true);
@@ -373,8 +298,8 @@ int main(int argc, char* argv[]) {
         check("Summary has 1 question", summary.value("totalQuestions", 0) == 1);
         check("Summary has 1 checked in", summary.value("checkedInCount", 0) == 1);
 
-        close(sFd);
-        close(tFd);
+        sockClose(sFd);
+        sockClose(tFd);
     }
     std::cout << "\n";
 
@@ -452,10 +377,10 @@ int main(int argc, char* argv[]) {
         sendMsg(tFd, {{"type", "END_CLASS_REQ"}, {"classId", classId}});
         recvMsg(tFd);
 
-        close(s1Fd);
-        close(s2Fd);
-        close(s3Fd);
-        close(tFd);
+        sockClose(s1Fd);
+        sockClose(s2Fd);
+        sockClose(s3Fd);
+        sockClose(tFd);
     }
     std::cout << "\n";
 
@@ -482,7 +407,7 @@ int main(int argc, char* argv[]) {
         recvMsg(sFd); // notification
 
         // Teacher disconnects abruptly
-        close(tFd);
+        sockClose(tFd);
         std::this_thread::sleep_for(std::chrono::milliseconds(200));
 
         // Class should still be listed as ACTIVE (teacher disconnect doesn't end class)
@@ -507,8 +432,8 @@ int main(int argc, char* argv[]) {
         resp = recvMsg(tFd);
         check("Reconnected teacher can end class", resp, true);
 
-        close(sFd);
-        close(tFd);
+        sockClose(sFd);
+        sockClose(tFd);
     }
     std::cout << "\n";
 
@@ -529,8 +454,8 @@ int main(int argc, char* argv[]) {
         std::cout << "  INFO: Second login " << (secondLoginResult ? "succeeded (old kicked)" : "rejected") << "\n";
         check("Duplicate login handled", true);  // Either behavior is acceptable
 
-        close(fd1);
-        close(fd2);
+        sockClose(fd1);
+        sockClose(fd2);
     }
     std::cout << "\n";
 
@@ -545,7 +470,7 @@ int main(int argc, char* argv[]) {
         // Create class with empty name
         sendMsg(tFd, {{"type", "CREATE_CLASS_REQ"}, {"name", ""}});
         auto resp = recvMsg(tFd);
-        // May succeed or fail — just verify no crash
+        // May succeed or fail -- just verify no crash
         check("Empty class name doesn't crash", !resp.empty());
 
         // Create class with long name
@@ -606,13 +531,13 @@ int main(int argc, char* argv[]) {
         sendMsg(tFd, {{"type", "END_CLASS_REQ"}, {"classId", classId}});
         recvMsg(tFd);
 
-        close(sFd);
-        close(tFd);
+        sockClose(sFd);
+        sockClose(tFd);
     }
     std::cout << "\n";
 
     // ================================================================
-    // Test Group 8: Persistence across data files
+    // Test Group 8: Data persistence verification
     // ================================================================
     std::cout << "--- Test Group 8: Data persistence verification ---\n";
     {
@@ -631,7 +556,7 @@ int main(int argc, char* argv[]) {
         }
         check("Multiple ENDED classes visible", endedCount >= 3);
 
-        close(tFd);
+        sockClose(tFd);
     }
     std::cout << "\n";
 

@@ -1,47 +1,9 @@
 // Console client for verifying statistics and export.
 // Requires: server running on localhost:9000 with clean data/.
-// Workflow: create accounts → create/start class → students join → check-in →
-//           publish question → students answer → end class → view summary → export CSV.
+// Workflow: create accounts -> create/start class -> students join -> check-in ->
+//           publish question -> students answer -> end class -> view summary -> export CSV.
 
-#include <common/protocol/protocol.h>
-#include <common/protocol/message_type.h>
-
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <unistd.h>
-#include <iostream>
-#include <vector>
-
-static int connectToServer(const char* host, uint16_t port) {
-    int fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (fd < 0) { perror("socket"); return -1; }
-    sockaddr_in addr{};
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(port);
-    inet_pton(AF_INET, host, &addr.sin_addr);
-    if (connect(fd, (sockaddr*)&addr, sizeof(addr)) < 0) {
-        perror("connect"); close(fd); return -1;
-    }
-    return fd;
-}
-
-static void sendMsg(int fd, const nlohmann::json& msg) {
-    auto data = Protocol::frame(msg);
-    write(fd, data.data(), data.size());
-}
-
-static nlohmann::json recvMsg(int fd) {
-    std::vector<uint8_t> buffer;
-    uint8_t buf[4096];
-    nlohmann::json result;
-    while (true) {
-        ssize_t n = read(fd, buf, sizeof(buf));
-        if (n <= 0) { std::cerr << "Connection closed\n"; return {}; }
-        buffer.insert(buffer.end(), buf, buf + n);
-        if (Protocol::extractFrame(buffer, result)) return result;
-    }
-}
+#include "test_socket.h"
 
 static int passed = 0;
 static int failed = 0;
@@ -61,7 +23,7 @@ static int loginAs(const char* host, uint16_t port, const std::string& username,
     auto resp = recvMsg(fd);
     if (!resp.value("success", false)) {
         std::cerr << "Login failed for " << username << ": " << resp.dump() << "\n";
-        close(fd); return -1;
+        sockClose(fd); return -1;
     }
     return fd;
 }
@@ -89,7 +51,7 @@ int main(int argc, char* argv[]) {
                        {"username", "s_stats2"}, {"password", "pass"},
                        {"name", "Bob"}, {"role", "STUDENT"}});
     recvMsg(adminFd);
-    close(adminFd);
+    sockClose(adminFd);
 
     int teacherFd = loginAs(host, port, "t_stats", "pass");
     int s1Fd = loginAs(host, port, "s_stats1", "pass");
@@ -226,14 +188,14 @@ int main(int argc, char* argv[]) {
                        {"username", "t_other"}, {"password", "pass"},
                        {"name", "Other Teacher"}, {"role", "TEACHER"}});
     recvMsg(adminFd);
-    close(adminFd);
+    sockClose(adminFd);
 
     int otherFd = loginAs(host, port, "t_other", "pass");
     if (otherFd >= 0) {
         sendMsg(otherFd, {{"type", "CLASS_SUMMARY_REQ"}, {"classId", classId}});
         r = recvMsg(otherFd);
         check("Non-owner teacher cannot view summary", !r.value("success", false));
-        close(otherFd);
+        sockClose(otherFd);
     }
     std::cout << "\n";
 
@@ -245,9 +207,9 @@ int main(int argc, char* argv[]) {
     std::cout << "\n";
 
     // Cleanup
-    close(teacherFd);
-    close(s1Fd);
-    close(s2Fd);
+    sockClose(teacherFd);
+    sockClose(s1Fd);
+    sockClose(s2Fd);
 
     std::cout << "=== Results: " << passed << " passed, " << failed << " failed ===\n";
     return failed > 0 ? 1 : 0;

@@ -1,61 +1,8 @@
 // Minimal console client for verifying login and permission control.
 // Usage: ./test_login_client [host] [port]
 
-#include <common/protocol/protocol.h>
-#include <common/protocol/message_type.h>
+#include "test_socket.h"
 #include <common/model/user.h>
-
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <unistd.h>
-#include <iostream>
-#include <vector>
-#include <cstring>
-
-static int connectToServer(const char* host, uint16_t port) {
-    int fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (fd < 0) { perror("socket"); return -1; }
-
-    sockaddr_in addr{};
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(port);
-    inet_pton(AF_INET, host, &addr.sin_addr);
-
-    if (connect(fd, (sockaddr*)&addr, sizeof(addr)) < 0) {
-        perror("connect");
-        close(fd);
-        return -1;
-    }
-    return fd;
-}
-
-static void sendMsg(int fd, const nlohmann::json& msg) {
-    auto data = Protocol::frame(msg);
-    write(fd, data.data(), data.size());
-}
-
-static nlohmann::json recvMsg(int fd) {
-    std::vector<uint8_t> buffer;
-    uint8_t buf[4096];
-    nlohmann::json result;
-
-    while (true) {
-        ssize_t n = read(fd, buf, sizeof(buf));
-        if (n <= 0) {
-            std::cerr << "Connection closed\n";
-            return {};
-        }
-        buffer.insert(buffer.end(), buf, buf + n);
-        if (Protocol::extractFrame(buffer, result)) {
-            return result;
-        }
-    }
-}
-
-static void printResp(const std::string& label, const nlohmann::json& resp) {
-    std::cout << "\n=== " << label << " ===\n" << resp.dump(2) << "\n";
-}
 
 int main(int argc, char* argv[]) {
     const char* host = argc > 1 ? argv[1] : "127.0.0.1";
@@ -79,7 +26,7 @@ int main(int argc, char* argv[]) {
 
     if (!loginResp.value("success", false)) {
         std::cerr << "Admin login failed, aborting.\n";
-        close(fd);
+        sockClose(fd);
         return 1;
     }
 
@@ -132,7 +79,7 @@ int main(int argc, char* argv[]) {
                  {"name", "Hacker2"}, {"role", "ADMIN"}});
     printResp("Expected: permission denied", recvMsg(fd));
 
-    close(fd);
+    sockClose(fd);
     std::cout << "\n=== All tests complete ===\n";
     return 0;
 }

@@ -1,3 +1,6 @@
+find_package(Qt6 REQUIRED COMPONENTS Core Network)
+set(CMAKE_AUTOMOC ON)
+
 add_executable(thunder_server
     src/main.cpp
     src/tcp_server.cpp
@@ -12,4 +15,4 @@ target_include_directories(thunder_server PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
-target_link_libraries(thunder_server PRIVATE common)
+target_link_libraries(thunder_server PRIVATE common Qt6::Core Qt6::Network)

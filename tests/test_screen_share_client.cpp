@@ -4,71 +4,8 @@
 //           teacher starts sharing -> sends frames -> students receive ->
 //           teacher stops sharing -> students notified.
 
-#include <common/protocol/protocol.h>
-#include <common/protocol/message_type.h>
-
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <unistd.h>
-#include <fcntl.h>
-#include <iostream>
-#include <vector>
+#include "test_socket.h"
 #include <string>
-
-static int connectToServer(const char* host, uint16_t port) {
-    int fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (fd < 0) { perror("socket"); return -1; }
-    sockaddr_in addr{};
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(port);
-    inet_pton(AF_INET, host, &addr.sin_addr);
-    if (connect(fd, (sockaddr*)&addr, sizeof(addr)) < 0) {
-        perror("connect"); close(fd); return -1;
-    }
-    return fd;
-}
-
-static void sendMsg(int fd, const nlohmann::json& msg) {
-    auto data = Protocol::frame(msg);
-    write(fd, data.data(), data.size());
-}
-
-static nlohmann::json recvMsg(int fd) {
-    std::vector<uint8_t> buffer;
-    uint8_t buf[4096];
-    nlohmann::json result;
-    while (true) {
-        ssize_t n = read(fd, buf, sizeof(buf));
-        if (n <= 0) { std::cerr << "Connection closed\n"; return {}; }
-        buffer.insert(buffer.end(), buf, buf + n);
-        if (Protocol::extractFrame(buffer, result)) return result;
-    }
-}
-
-static nlohmann::json tryRecvMsg(int fd) {
-    int flags = fcntl(fd, F_GETFL, 0);
-    fcntl(fd, F_SETFL, flags | O_NONBLOCK);
-
-    std::vector<uint8_t> buffer;
-    uint8_t buf[4096];
-    nlohmann::json result;
-
-    for (int attempt = 0; attempt < 10; ++attempt) {
-        ssize_t n = read(fd, buf, sizeof(buf));
-        if (n > 0) {
-            buffer.insert(buffer.end(), buf, buf + n);
-            if (Protocol::extractFrame(buffer, result)) {
-                fcntl(fd, F_SETFL, flags);
-                return result;
-            }
-        }
-        usleep(10000);
-    }
-
-    fcntl(fd, F_SETFL, flags);
-    return {};
-}
 
 static int passed = 0;
 static int failed = 0;
@@ -88,7 +25,7 @@ static int loginAs(const char* host, uint16_t port, const std::string& username,
     auto resp = recvMsg(fd);
     if (!resp.value("success", false)) {
         std::cerr << "Login failed for " << username << ": " << resp.dump() << "\n";
-        close(fd); return -1;
+        sockClose(fd); return -1;
     }
     return fd;
 }
@@ -123,7 +60,7 @@ int main(int argc, char* argv[]) {
                        {"username", "s_screen2"}, {"password", "pass"},
                        {"name", "Bob"}, {"role", "STUDENT"}});
     recvMsg(adminFd);
-    close(adminFd);
+    sockClose(adminFd);
 
     int teacherFd = loginAs(host, port, "t_screen", "pass");
     int s1Fd = loginAs(host, port, "s_screen1", "pass");
@@ -269,7 +206,7 @@ int main(int argc, char* argv[]) {
     recvMsg(teacherFd);
 
     // Reconnect students for the new class
-    close(s1Fd);
+    sockClose(s1Fd);
     s1Fd = loginAs(host, port, "s_screen1", "pass");
     sendMsg(s1Fd, {{"type", "JOIN_CLASS_REQ"}, {"classId", classId2}});
     recvMsg(s1Fd);
@@ -283,7 +220,7 @@ int main(int argc, char* argv[]) {
     sendMsg(teacherFd, {{"type", "END_CLASS_REQ"}, {"classId", classId2}});
     recvMsg(teacherFd);
 
-    // Try to stop sharing — should fail because already auto-stopped
+    // Try to stop sharing -- should fail because already auto-stopped
     sendMsg(teacherFd, {{"type", "STOP_SCREEN_SHARE_REQ"}, {"classId", classId2}});
     r = recvMsg(teacherFd);
     check("Sharing auto-stopped when class ended", !r.value("success", false));
@@ -296,7 +233,7 @@ int main(int argc, char* argv[]) {
                        {"username", "t_other_screen"}, {"password", "pass"},
                        {"name", "Other Teacher"}, {"role", "TEACHER"}});
     recvMsg(adminFd);
-    close(adminFd);
+    sockClose(adminFd);
 
     // Create a new active class for the test
     sendMsg(teacherFd, {{"type", "CREATE_CLASS_REQ"}, {"name", "Ownership Test"}});
@@ -310,14 +247,14 @@ int main(int argc, char* argv[]) {
         sendMsg(otherFd, {{"type", "START_SCREEN_SHARE_REQ"}, {"classId", classId3}});
         r = recvMsg(otherFd);
         check("Non-owner teacher cannot start sharing", !r.value("success", false));
-        close(otherFd);
+        sockClose(otherFd);
     }
     std::cout << "\n";
 
     // Cleanup
-    close(teacherFd);
-    close(s1Fd);
-    close(s2Fd);
+    sockClose(teacherFd);
+    sockClose(s1Fd);
+    sockClose(s2Fd);
 
     std::cout << "=== Results: " << passed << " passed, " << failed << " failed ===\n";
     return failed > 0 ? 1 : 0;
