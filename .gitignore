@@ -1,0 +1,34 @@
+# Build
+build/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+Makefile
+cmake_install.cmake
+compile_commands.json
+
+# Data (generated at runtime)
+data/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Cache
+.cache/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Binaries
+*.o
+*.a
+*.dylib
+*.so
+
+# Export files
+*.csv
