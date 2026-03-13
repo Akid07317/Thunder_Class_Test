@@ -8,6 +8,7 @@
 #include <QTextEdit>
 #include <QRadioButton>
 #include <QTimer>
+#include <QElapsedTimer>
 #include <QScrollArea>
 #include <nlohmann/json.hpp>
 
@@ -51,6 +52,10 @@ private:
     void playAudioFrame(const std::string& audioData);
     void stopAudioPlayback();
 
+    // Attention tracking
+    void sendAttentionReport();
+    bool eventFilter(QObject* obj, QEvent* event) override;
+
     TcpClient* client_;
     Session* session_;
     QStackedWidget* stack_;
@@ -90,4 +95,9 @@ private:
 #endif
 
     QLabel* actionStatus_;
+
+    // Attention tracking
+    QTimer* attentionTimer_ = nullptr;
+    QElapsedTimer idleTimer_;
+    bool windowFocused_ = true;
 };

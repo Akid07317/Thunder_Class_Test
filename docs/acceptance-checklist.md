@@ -117,8 +117,23 @@ Each item must be demonstrable end-to-end in the final defense.
 - [x] Server validates answer index is within option bounds
 - [x] 214/214 tests pass across 8 suites (including 57 edge case tests) with 0 regressions
 
+## Module 10 — Advanced Attention Tracking
+
+- [x] Client detects window focus/unfocus (WindowActivate/WindowDeactivate events)
+- [x] Client tracks mouse/keyboard idle time (QElapsedTimer reset on input events)
+- [x] Client sends periodic ATTENTION_REPORT to server (every 30s)
+- [x] Server accumulates per-student focus rate and active rate
+- [x] Server sends periodic NOTIFY_PRESENCE_CHECK to all students in active classes (every 5 min)
+- [x] Student receives popup "Are you still here?" with 30s deadline
+- [x] Student response tracked; non-response counted as missed
+- [x] Teacher can view real-time attention status per student (focus, idle, rates, presence)
+- [x] Attention data included in class summary JSON
+- [x] Attention data included in CSV export (4 new columns)
+- [x] Attention state auto-cleared when class ends
+- [x] 214/214 tests pass with 0 regressions
+
 ## Phase 2 (Remaining)
 
 - [ ] Audio device switching (deferred — uses default device only)
 - [x] Late or missing check-in distinction
-- [ ] Advanced attention tracking
+- [x] Advanced attention tracking

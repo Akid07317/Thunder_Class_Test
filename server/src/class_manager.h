@@ -8,6 +8,25 @@
 #include <common/model/class_info.h>
 #include <common/model/class_event.h>
 
+struct AttentionState {
+    bool focused = true;
+    int idleSeconds = 0;
+    std::time_t lastReportTime = 0;
+    long totalFocusedSeconds = 0;
+    long totalUnfocusedSeconds = 0;
+    long totalActiveSeconds = 0;
+    long totalIdleSeconds = 0;
+    int presenceChecksSent = 0;
+    int presenceChecksResponded = 0;
+};
+
+struct PresenceCheckState {
+    bool active = false;
+    std::time_t sentTime = 0;
+    int deadlineSeconds = 30;
+    std::unordered_set<int> responded;
+};
+
 struct CheckinState {
     bool open = false;
     std::time_t openTime = 0;
@@ -60,6 +79,17 @@ public:
     // Returns userId of student with mic, or -1 if none.
     int getMicHolder(int classId) const;
 
+    // --- Attention tracking ---
+    void updateAttention(int classId, int userId, bool focused, int idleSeconds);
+    AttentionState getAttention(int classId, int userId) const;
+    std::vector<std::pair<int, AttentionState>> getAllAttention(int classId) const;
+
+    // Presence check
+    void startPresenceCheck(int classId);
+    bool respondPresenceCheck(int classId, int userId);
+    std::vector<int> getPresenceCheckNonResponders(int classId) const;
+    void clearPresenceCheck(int classId);
+
     // --- Queries ---
     std::optional<ClassInfo> getClass(int classId) const;
     std::vector<ClassInfo> getAllClasses() const;
@@ -74,6 +104,8 @@ private:
     std::unordered_set<int> screenSharing_; // classIds currently sharing screen
     std::unordered_set<int> audioActive_;  // classIds with audio broadcast active
     std::unordered_map<int, int> micHolder_; // classId -> userId holding mic (-1 = none)
+    std::unordered_map<int, std::unordered_map<int, AttentionState>> attention_; // classId -> {userId -> state}
+    std::unordered_map<int, PresenceCheckState> presenceChecks_; // classId -> state
     std::vector<ClassEvent> events_;
     int nextClassId_ = 1;
 

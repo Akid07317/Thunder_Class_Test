@@ -143,8 +143,10 @@ void TeacherPage::setupClassroomView(QWidget* page) {
     actionsLayout->addLayout(deadlineLayout);
     actionsLayout->addWidget(checkinStatusBtn);
     actionsLayout->addWidget(randomBtn);
+    auto* attentionBtn = new QPushButton("Attention Status", leftPanel);
     actionsLayout->addWidget(summaryBtn);
     actionsLayout->addWidget(exportBtn);
+    actionsLayout->addWidget(attentionBtn);
     leftLayout->addWidget(actionsGroup);
 
     // Audio controls
@@ -236,6 +238,7 @@ void TeacherPage::setupClassroomView(QWidget* page) {
     connect(getAnswersBtn, &QPushButton::clicked, this, &TeacherPage::onGetAnswers);
     connect(summaryBtn, &QPushButton::clicked, this, &TeacherPage::onViewSummary);
     connect(exportBtn, &QPushButton::clicked, this, &TeacherPage::onExportCSV);
+    connect(attentionBtn, &QPushButton::clicked, this, &TeacherPage::onAttentionStatus);
 }
 
 void TeacherPage::onActivated() {
@@ -367,6 +370,13 @@ void TeacherPage::onViewSummary() {
 void TeacherPage::onExportCSV() {
     nlohmann::json req;
     req["type"] = to_string(MessageType::EXPORT_CLASS_REQ);
+    req["classId"] = currentClassId_;
+    client_->send(req);
+}
+
+void TeacherPage::onAttentionStatus() {
+    nlohmann::json req;
+    req["type"] = to_string(MessageType::ATTENTION_STATUS_REQ);
     req["classId"] = currentClassId_;
     client_->send(req);
 }
@@ -643,12 +653,16 @@ void TeacherPage::handleMessage(const nlohmann::json& msg) {
 
             auto students = summary.value("students", nlohmann::json::array());
             for (auto& s : students) {
-                text += QString("%1: checkin=%2, duration=%3s, answered=%4, correct=%5\n")
+                text += QString("%1: checkin=%2, duration=%3s, answered=%4, correct=%5, focus=%6%, active=%7%, presence=%8/%9\n")
                     .arg(QString::fromStdString(s.value("name", "")))
                     .arg(QString::fromStdString(s.value("checkinStatus", "absent")))
                     .arg(s.value("durationSeconds", 0))
                     .arg(s.value("questionsAnswered", 0))
-                    .arg(s.value("correctAnswers", 0));
+                    .arg(s.value("correctAnswers", 0))
+                    .arg(s.value("focusRate", 100.0), 0, 'f', 0)
+                    .arg(s.value("activeRate", 100.0), 0, 'f', 0)
+                    .arg(s.value("presenceResponded", 0))
+                    .arg(s.value("presenceTotal", 0));
             }
             resultArea_->setText(text);
         } else {
@@ -757,6 +771,37 @@ void TeacherPage::handleMessage(const nlohmann::json& msg) {
             audioStatus_->setText("Audio: active | Mic: none");
         } else {
             actionStatus_->setText(QString::fromStdString(msg.value("message", "Failed to revoke mic")));
+        }
+    }
+    else if (type == to_string(MessageType::ATTENTION_STATUS_RESP)) {
+        bool ok = msg.value("success", false);
+        if (ok) {
+            auto students = msg.value("students", nlohmann::json::array());
+            QString text = "Attention Status:\n\n";
+            text += QString("%-20s %-8s %-8s %-10s %-10s %-12s\n")
+                .arg("Name").arg("Focus").arg("Idle(s)").arg("Focus%").arg("Active%").arg("Presence");
+            text += QString("-").repeated(70) + "\n";
+            for (auto& s : students) {
+                QString name = QString::fromStdString(s.value("name", ""));
+                bool focused = s.value("focused", true);
+                int idle = s.value("idleSeconds", 0);
+                double focusRate = s.value("focusRate", 100.0);
+                double activeRate = s.value("activeRate", 100.0);
+                int presResp = s.value("presenceResponded", 0);
+                int presTotal = s.value("presenceTotal", 0);
+                text += QString("%1  %2  %3s  %4%  %5%  %6/%7\n")
+                    .arg(name, -20)
+                    .arg(focused ? "Yes" : "No ", -6)
+                    .arg(idle, 4)
+                    .arg(focusRate, 5, 'f', 0)
+                    .arg(activeRate, 5, 'f', 0)
+                    .arg(presResp)
+                    .arg(presTotal);
+            }
+            if (students.empty()) text += "(No attention data yet)\n";
+            resultArea_->setText(text);
+        } else {
+            actionStatus_->setText(QString::fromStdString(msg.value("message", "Failed")));
         }
     }
     else if (type == to_string(MessageType::NOTIFY_AUDIO_FRAME)) {

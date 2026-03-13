@@ -403,6 +403,52 @@ Systematic cross-module review of server-client protocol consistency. Found and 
 
 **Status:** Edge case testing complete. No bugs found — all edge cases handled correctly.
 
+### 2026-03-13 — Phase 10: Advanced Attention Tracking
+
+- Implemented three attention tracking features:
+  1. **Window focus detection** — client event filter tracks `WindowActivate`/`WindowDeactivate`
+  2. **Mouse/keyboard activity tracking** — `QElapsedTimer` resets on input events, idle seconds reported
+  3. **Periodic presence check popup** — server pushes `NOTIFY_PRESENCE_CHECK` every 5 min, student must click OK within 30s
+- Added 5 new message types: ATTENTION_REPORT, NOTIFY_PRESENCE_CHECK, PRESENCE_CHECK_RESP, ATTENTION_STATUS_REQ, ATTENTION_STATUS_RESP
+- Added `AttentionState` and `PresenceCheckState` structs in ClassManager
+- Server accumulates per-student focus/active time ratios and presence check response counts (in-memory, not event-logged to avoid I/O overhead)
+- Teacher "Attention Status" button shows real-time per-student: focus state, idle time, focus%, active%, presence response ratio
+- Statistics & CSV export extended with 4 new columns: Focus Rate, Active Rate, Presence Responded, Presence Total
+- Attention data auto-cleared when class ends
+
+**Files changed (10 files, +406 lines):**
+- `common/protocol/message_type.h` — 5 new MessageType entries
+- `server/src/class_manager.h/.cpp` — AttentionState, PresenceCheckState, 6 new methods
+- `server/src/main.cpp` — 3 handlers + QTimer for periodic presence checks
+- `server/src/statistics_exporter.h/.cpp` — 4 new fields in StudentStat, JSON, and CSV
+- `client/src/pages/student_page.h/.cpp` — eventFilter, idle timer, attention report, presence popup
+- `client/src/pages/teacher_page.h/.cpp` — attention status button + response display
+
+**Verification result:** Clean build (0 errors, 0 warnings). All 214/214 tests pass, 0 regressions.
+
+**Acceptance items covered:**
+- [x] Window focus detection — client tracks whether student is on the app
+- [x] Mouse/keyboard idle tracking — idle seconds reported to server
+- [x] Periodic presence check — server-triggered "are you there?" popup
+- [x] Teacher can view attention status per student
+- [x] Attention data included in summary and CSV export
+- [x] All data auto-cleared on class end
+
+**Token consumption estimate for this session:**
+
+| Category | Tokens | Note |
+|----------|--------|------|
+| Input | ~280,000 | System prompt, file reads, agent, context |
+| — System prompt (per turn) | ~105,000 | ~15k × 7 turns |
+| — File reads | ~25,000 | ~5,000 lines across 15 files |
+| — Plan agent | ~62,000 | Exploration and planning |
+| — Context & history | ~50,000 | Conversation history |
+| — Build/test output | ~38,000 | CMake + 214 tests |
+| Output | ~25,000 | Code edits, responses |
+| **Total** | **~305,000** | **~30 万 tokens** |
+
+**Status:** Advanced attention tracking complete.
+
 ## Planned Phases
 
 | Phase | Content | Status |
@@ -417,3 +463,4 @@ Systematic cross-module review of server-client protocol consistency. Found and 
 | 7 | Screen sharing (simplified) | Done (server + client capture/display) |
 | 8 | Audio broadcast & student mic | Done (server + client UI; real capture needs qtmultimedia) |
 | 9 | Integration, polish, defense materials | Done |
+| 10 | Advanced attention tracking | Done |

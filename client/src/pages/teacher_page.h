@@ -54,6 +54,7 @@ private:
     void onGetAnswers();
     void onViewSummary();
     void onExportCSV();
+    void onAttentionStatus();
     void onLeaveClassroom();
 
     // Screen sharing actions

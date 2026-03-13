@@ -9,6 +9,8 @@
 #include <QMessageBox>
 #include <QButtonGroup>
 #include <QByteArray>
+#include <QApplication>
+#include <QEvent>
 
 #ifdef HAS_QT_MULTIMEDIA
 #include <QAudioDevice>
@@ -29,6 +31,14 @@ StudentPage::StudentPage(TcpClient* client, Session* session, QWidget* parent)
     stack_->addWidget(classroomPage);
 
     layout->addWidget(stack_);
+
+    // Attention tracking: install event filter for focus/idle detection
+    qApp->installEventFilter(this);
+    idleTimer_.start();
+
+    attentionTimer_ = new QTimer(this);
+    connect(attentionTimer_, &QTimer::timeout, this, &StudentPage::sendAttentionReport);
+    attentionTimer_->start(30000); // report every 30s
 }
 
 void StudentPage::setupClassListView(QWidget* page) {
@@ -328,6 +338,36 @@ void StudentPage::stopAudioPlayback() {
 #endif
 }
 
+bool StudentPage::eventFilter(QObject* obj, QEvent* event) {
+    switch (event->type()) {
+    case QEvent::WindowActivate:
+        windowFocused_ = true;
+        break;
+    case QEvent::WindowDeactivate:
+        windowFocused_ = false;
+        break;
+    case QEvent::MouseMove:
+    case QEvent::KeyPress:
+    case QEvent::MouseButtonPress:
+        idleTimer_.restart();
+        break;
+    default:
+        break;
+    }
+    return QWidget::eventFilter(obj, event);
+}
+
+void StudentPage::sendAttentionReport() {
+    if (currentClassId_ <= 0) return;
+    int idleSec = static_cast<int>(idleTimer_.elapsed() / 1000);
+    nlohmann::json req;
+    req["type"] = to_string(MessageType::ATTENTION_REPORT);
+    req["classId"] = currentClassId_;
+    req["focused"] = windowFocused_;
+    req["idleSeconds"] = idleSec;
+    client_->send(req);
+}
+
 void StudentPage::handleMessage(const nlohmann::json& msg) {
     std::string type = msg.value("type", "");
 
@@ -450,5 +490,31 @@ void StudentPage::handleMessage(const nlohmann::json& msg) {
         notificationArea_->append("[Audio] Your microphone has been revoked.");
         audioStatus_->setText("Audio: listening (mic revoked)");
         stopMicCapture();
+    }
+    // Presence check
+    else if (type == to_string(MessageType::NOTIFY_PRESENCE_CHECK)) {
+        int deadline = msg.value("deadlineSeconds", 30);
+        int classId = msg.value("classId", 0);
+        notificationArea_->append(
+            QString("[Presence] Are you still here? (%1s to respond)").arg(deadline));
+
+        auto* dialog = new QMessageBox(this);
+        dialog->setWindowTitle("Presence Check");
+        dialog->setText(QString("Are you still here?\nClick OK within %1 seconds.").arg(deadline));
+        dialog->setStandardButtons(QMessageBox::Ok);
+        dialog->setAttribute(Qt::WA_DeleteOnClose);
+
+        // Auto-close after deadline
+        QTimer::singleShot(deadline * 1000, dialog, &QDialog::reject);
+
+        connect(dialog, &QMessageBox::accepted, this, [this, classId]{
+            nlohmann::json req;
+            req["type"] = to_string(MessageType::PRESENCE_CHECK_RESP);
+            req["classId"] = classId;
+            client_->send(req);
+            notificationArea_->append("[Presence] Responded: I'm here!");
+        });
+
+        dialog->show();
     }
 }

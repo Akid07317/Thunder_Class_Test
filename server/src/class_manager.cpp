@@ -48,6 +48,8 @@ bool ClassManager::endClass(int classId, int teacherId) {
     screenSharing_.erase(classId);
     audioActive_.erase(classId);
     micHolder_.erase(classId);
+    attention_.erase(classId);
+    presenceChecks_.erase(classId);
     members_.erase(classId);
     addEvent(classId, "CLASS_ENDED", teacherId, it->second.teacherName);
     saveClasses();
@@ -280,6 +282,95 @@ int ClassManager::getMicHolder(int classId) const {
     auto it = micHolder_.find(classId);
     if (it != micHolder_.end()) return it->second;
     return -1;
+}
+
+// --- Attention tracking ---
+
+void ClassManager::updateAttention(int classId, int userId, bool focused, int idleSeconds) {
+    auto& att = attention_[classId][userId];
+    std::time_t now = std::time(nullptr);
+    if (att.lastReportTime > 0) {
+        long delta = static_cast<long>(now - att.lastReportTime);
+        if (delta > 0 && delta < 300) { // ignore gaps > 5 min
+            if (att.focused) att.totalFocusedSeconds += delta;
+            else att.totalUnfocusedSeconds += delta;
+
+            if (att.idleSeconds < 30) att.totalActiveSeconds += delta;
+            else att.totalIdleSeconds += delta;
+        }
+    }
+    att.focused = focused;
+    att.idleSeconds = idleSeconds;
+    att.lastReportTime = now;
+}
+
+AttentionState ClassManager::getAttention(int classId, int userId) const {
+    auto it = attention_.find(classId);
+    if (it == attention_.end()) return {};
+    auto sit = it->second.find(userId);
+    if (sit == it->second.end()) return {};
+    return sit->second;
+}
+
+std::vector<std::pair<int, AttentionState>> ClassManager::getAllAttention(int classId) const {
+    std::vector<std::pair<int, AttentionState>> result;
+    auto it = attention_.find(classId);
+    if (it != attention_.end()) {
+        for (auto& [uid, att] : it->second) {
+            result.push_back({uid, att});
+        }
+    }
+    return result;
+}
+
+void ClassManager::startPresenceCheck(int classId) {
+    PresenceCheckState state;
+    state.active = true;
+    state.sentTime = std::time(nullptr);
+    presenceChecks_[classId] = state;
+
+    // Increment presenceChecksSent for all members with attention data
+    auto mit = members_.find(classId);
+    if (mit != members_.end()) {
+        for (auto& [uid, _] : mit->second) {
+            attention_[classId][uid].presenceChecksSent++;
+        }
+    }
+}
+
+bool ClassManager::respondPresenceCheck(int classId, int userId) {
+    auto it = presenceChecks_.find(classId);
+    if (it == presenceChecks_.end() || !it->second.active) return false;
+
+    // Check deadline
+    std::time_t now = std::time(nullptr);
+    if (now > it->second.sentTime + it->second.deadlineSeconds) return false;
+
+    if (it->second.responded.count(userId)) return false; // already responded
+    it->second.responded.insert(userId);
+
+    attention_[classId][userId].presenceChecksResponded++;
+    return true;
+}
+
+std::vector<int> ClassManager::getPresenceCheckNonResponders(int classId) const {
+    std::vector<int> result;
+    auto pit = presenceChecks_.find(classId);
+    if (pit == presenceChecks_.end()) return result;
+
+    auto mit = members_.find(classId);
+    if (mit == members_.end()) return result;
+
+    for (auto& [uid, _] : mit->second) {
+        if (!pit->second.responded.count(uid)) {
+            result.push_back(uid);
+        }
+    }
+    return result;
+}
+
+void ClassManager::clearPresenceCheck(int classId) {
+    presenceChecks_.erase(classId);
 }
 
 // --- Queries ---

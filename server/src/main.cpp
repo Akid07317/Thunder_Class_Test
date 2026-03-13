@@ -6,6 +6,7 @@
 #include "statistics_exporter.h"
 #include <common/protocol/message_type.h>
 #include <QCoreApplication>
+#include <QTimer>
 #include <iostream>
 
 static const uint16_t DEFAULT_PORT = 9000;
@@ -868,7 +869,8 @@ int main(int argc, char* argv[]) {
                     for (auto& q : questions) {
                         answersPerQ.push_back(questionMgr.getAnswers(q.questionId));
                     }
-                    auto summary = StatisticsExporter::buildSummary(*ci, events, questions, answersPerQ);
+                    auto attData = classMgr.getAllAttention(classId);
+                    auto summary = StatisticsExporter::buildSummary(*ci, events, questions, answersPerQ, attData);
                     resp["success"] = true;
                     resp["summary"] = StatisticsExporter::summaryToJson(summary);
                 }
@@ -898,10 +900,78 @@ int main(int argc, char* argv[]) {
                     for (auto& q : questions) {
                         answersPerQ.push_back(questionMgr.getAnswers(q.questionId));
                     }
-                    auto summary = StatisticsExporter::buildSummary(*ci, events, questions, answersPerQ);
+                    auto attData = classMgr.getAllAttention(classId);
+                    auto summary = StatisticsExporter::buildSummary(*ci, events, questions, answersPerQ, attData);
                     resp["success"] = true;
                     resp["csv"] = StatisticsExporter::summaryToCSV(summary);
                     std::cout << "Export generated for class " << classId << "\n";
+                }
+            }
+            server.send(fd, resp);
+            break;
+        }
+
+        // ==================== Attention Tracking ====================
+        case MessageType::ATTENTION_REPORT: {
+            auto caller = sessionMgr.getUser(fd);
+            if (!caller || caller->role != Role::STUDENT) break;
+            int classId = msg.value("classId", 0);
+            bool focused = msg.value("focused", true);
+            int idleSeconds = msg.value("idleSeconds", 0);
+            classMgr.updateAttention(classId, caller->userId, focused, idleSeconds);
+            // Fire-and-forget — no response
+            break;
+        }
+
+        case MessageType::PRESENCE_CHECK_RESP: {
+            auto caller = sessionMgr.getUser(fd);
+            if (!caller || caller->role != Role::STUDENT) break;
+            int classId = msg.value("classId", 0);
+            classMgr.respondPresenceCheck(classId, caller->userId);
+            // Fire-and-forget — no response
+            break;
+        }
+
+        case MessageType::ATTENTION_STATUS_REQ: {
+            auto caller = sessionMgr.getUser(fd);
+            nlohmann::json resp;
+            resp["type"] = "ATTENTION_STATUS_RESP";
+
+            if (!caller || caller->role != Role::TEACHER) {
+                resp["success"] = false;
+                resp["message"] = "Permission denied: teacher only";
+            } else {
+                int classId = msg.value("classId", 0);
+                auto ci = classMgr.getClass(classId);
+                if (!ci || ci->teacherId != caller->userId) {
+                    resp["success"] = false;
+                    resp["message"] = "Class not found or not owned by you";
+                } else {
+                    auto allAtt = classMgr.getAllAttention(classId);
+                    auto memberList = classMgr.getMemberList(classId);
+                    // Build name lookup
+                    std::unordered_map<int, std::string> nameMap;
+                    for (auto& [uid, name] : memberList) nameMap[uid] = name;
+
+                    resp["success"] = true;
+                    nlohmann::json arr = nlohmann::json::array();
+                    for (auto& [uid, att] : allAtt) {
+                        long totalFocus = att.totalFocusedSeconds + att.totalUnfocusedSeconds;
+                        long totalActivity = att.totalActiveSeconds + att.totalIdleSeconds;
+                        arr.push_back({
+                            {"userId", uid},
+                            {"name", nameMap.count(uid) ? nameMap[uid] : ""},
+                            {"focused", att.focused},
+                            {"idleSeconds", att.idleSeconds},
+                            {"focusRate", totalFocus > 0
+                                ? (100.0 * att.totalFocusedSeconds / totalFocus) : 100.0},
+                            {"activeRate", totalActivity > 0
+                                ? (100.0 * att.totalActiveSeconds / totalActivity) : 100.0},
+                            {"presenceResponded", att.presenceChecksResponded},
+                            {"presenceTotal", att.presenceChecksSent}
+                        });
+                    }
+                    resp["students"] = arr;
                 }
             }
             server.send(fd, resp);
@@ -916,6 +986,38 @@ int main(int argc, char* argv[]) {
         std::cerr << "Error handling message from fd=" << fd << ": " << ex.what() << "\n";
       }
     });
+
+    // Periodic presence check timer — every 5 minutes
+    QTimer presenceTimer;
+    QObject::connect(&presenceTimer, &QTimer::timeout, [&]{
+        for (auto& ci : classMgr.getAllClasses()) {
+            if (ci.status != ClassStatus::ACTIVE) continue;
+            classMgr.startPresenceCheck(ci.classId);
+
+            nlohmann::json notify;
+            notify["type"] = "NOTIFY_PRESENCE_CHECK";
+            notify["classId"] = ci.classId;
+            notify["deadlineSeconds"] = 30;
+
+            for (int uid : classMgr.getMembers(ci.classId)) {
+                int memberFd = findFd(uid);
+                if (memberFd >= 0) server.send(memberFd, notify);
+            }
+
+            std::cout << "Presence check sent: class=" << ci.classId << "\n";
+
+            // After deadline, log non-responders
+            QTimer::singleShot(30000, [&classMgr, classId = ci.classId]{
+                auto nonResponders = classMgr.getPresenceCheckNonResponders(classId);
+                if (!nonResponders.empty()) {
+                    std::cout << "Presence check missed by " << nonResponders.size()
+                              << " student(s) in class " << classId << "\n";
+                }
+                classMgr.clearPresenceCheck(classId);
+            });
+        }
+    });
+    presenceTimer.start(5 * 60 * 1000); // 5 minutes
 
     std::cout << "Thunder Class Server starting...\n";
     if (!server.start()) {

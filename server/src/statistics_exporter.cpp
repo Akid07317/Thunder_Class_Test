@@ -1,4 +1,5 @@
 #include "statistics_exporter.h"
+#include "class_manager.h"
 #include <unordered_map>
 #include <unordered_set>
 #include <sstream>
@@ -10,7 +11,8 @@ StatisticsExporter::ClassSummary StatisticsExporter::buildSummary(
     const ClassInfo& classInfo,
     const std::vector<ClassEvent>& events,
     const std::vector<Question>& questions,
-    const std::vector<std::vector<AnswerRecord>>& answersPerQuestion)
+    const std::vector<std::vector<AnswerRecord>>& answersPerQuestion,
+    const std::vector<std::pair<int, AttentionState>>& attentionData)
 {
     ClassSummary summary;
     summary.classInfo = classInfo;
@@ -105,6 +107,22 @@ StatisticsExporter::ClassSummary StatisticsExporter::buildSummary(
         summary.students.push_back(s);
     }
 
+    // Merge attention data
+    std::unordered_map<int, const AttentionState*> attMap;
+    for (auto& [uid, att] : attentionData) attMap[uid] = &att;
+    for (auto& s : summary.students) {
+        auto ait = attMap.find(s.userId);
+        if (ait != attMap.end()) {
+            auto& att = *ait->second;
+            long totalFocus = att.totalFocusedSeconds + att.totalUnfocusedSeconds;
+            long totalActivity = att.totalActiveSeconds + att.totalIdleSeconds;
+            s.focusRate = totalFocus > 0 ? (100.0 * att.totalFocusedSeconds / totalFocus) : 100.0;
+            s.activeRate = totalActivity > 0 ? (100.0 * att.totalActiveSeconds / totalActivity) : 100.0;
+            s.presenceResponded = att.presenceChecksResponded;
+            s.presenceTotal = att.presenceChecksSent;
+        }
+    }
+
     // Sort students by userId for deterministic output
     std::sort(summary.students.begin(), summary.students.end(),
               [](const StudentStat& a, const StudentStat& b) { return a.userId < b.userId; });
@@ -134,7 +152,11 @@ nlohmann::json StatisticsExporter::summaryToJson(const ClassSummary& summary) {
             {"checkinStatus", s.checkinStatus},
             {"durationSeconds", s.durationSeconds},
             {"questionsAnswered", s.questionsAnswered},
-            {"correctAnswers", s.correctAnswers}
+            {"correctAnswers", s.correctAnswers},
+            {"focusRate", s.focusRate},
+            {"activeRate", s.activeRate},
+            {"presenceResponded", s.presenceResponded},
+            {"presenceTotal", s.presenceTotal}
         });
     }
     j["students"] = arr;
@@ -183,13 +205,18 @@ std::string StatisticsExporter::summaryToCSV(const ClassSummary& summary) {
     oss << "\n";
 
     // Student detail table
-    oss << "Student Name,Check-in Status,Online Duration (s),Questions Answered,Correct Answers\n";
+    oss << "Student Name,Check-in Status,Online Duration (s),Questions Answered,Correct Answers,"
+        << "Focus Rate (%),Active Rate (%),Presence Responded,Presence Total\n";
     for (auto& s : summary.students) {
         oss << csvEscape(s.name) << ","
             << s.checkinStatus << ","
             << s.durationSeconds << ","
             << s.questionsAnswered << ","
-            << s.correctAnswers << "\n";
+            << s.correctAnswers << ","
+            << std::fixed << std::setprecision(0) << s.focusRate << ","
+            << std::fixed << std::setprecision(0) << s.activeRate << ","
+            << s.presenceResponded << ","
+            << s.presenceTotal << "\n";
     }
 
     return oss.str();

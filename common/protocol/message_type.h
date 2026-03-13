@@ -93,6 +93,13 @@ enum class MessageType {
     NOTIFY_MIC_GRANTED,
     NOTIFY_MIC_REVOKED,
 
+    // Attention tracking
+    ATTENTION_REPORT,           // student -> server: periodic focus/idle report
+    NOTIFY_PRESENCE_CHECK,      // server -> student: "are you there?" push
+    PRESENCE_CHECK_RESP,        // student -> server: "I'm here"
+    ATTENTION_STATUS_REQ,       // teacher -> server: query attention data
+    ATTENTION_STATUS_RESP,      // server -> teacher: attention data
+
     UNKNOWN
 };
 
@@ -165,6 +172,11 @@ inline std::string to_string(MessageType t) {
         case MessageType::NOTIFY_AUDIO_FRAME:     return "NOTIFY_AUDIO_FRAME";
         case MessageType::NOTIFY_MIC_GRANTED:     return "NOTIFY_MIC_GRANTED";
         case MessageType::NOTIFY_MIC_REVOKED:     return "NOTIFY_MIC_REVOKED";
+        case MessageType::ATTENTION_REPORT:       return "ATTENTION_REPORT";
+        case MessageType::NOTIFY_PRESENCE_CHECK:  return "NOTIFY_PRESENCE_CHECK";
+        case MessageType::PRESENCE_CHECK_RESP:    return "PRESENCE_CHECK_RESP";
+        case MessageType::ATTENTION_STATUS_REQ:   return "ATTENTION_STATUS_REQ";
+        case MessageType::ATTENTION_STATUS_RESP:  return "ATTENTION_STATUS_RESP";
         default:                                return "UNKNOWN";
     }
 }
@@ -237,5 +249,10 @@ inline MessageType message_type_from_string(const std::string& s) {
     if (s == "NOTIFY_AUDIO_FRAME")   return MessageType::NOTIFY_AUDIO_FRAME;
     if (s == "NOTIFY_MIC_GRANTED")   return MessageType::NOTIFY_MIC_GRANTED;
     if (s == "NOTIFY_MIC_REVOKED")   return MessageType::NOTIFY_MIC_REVOKED;
+    if (s == "ATTENTION_REPORT")     return MessageType::ATTENTION_REPORT;
+    if (s == "NOTIFY_PRESENCE_CHECK") return MessageType::NOTIFY_PRESENCE_CHECK;
+    if (s == "PRESENCE_CHECK_RESP")  return MessageType::PRESENCE_CHECK_RESP;
+    if (s == "ATTENTION_STATUS_REQ") return MessageType::ATTENTION_STATUS_REQ;
+    if (s == "ATTENTION_STATUS_RESP") return MessageType::ATTENTION_STATUS_RESP;
     return MessageType::UNKNOWN;
 }

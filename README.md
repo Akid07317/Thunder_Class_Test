@@ -20,6 +20,7 @@ Build a runnable, demoable, and defensible online classroom system with clear ob
 - Statistics & CSV export (统计与导出)
 - Screen sharing via periodic screenshots (屏幕共享，截图方式)
 - Audio broadcast & student mic control (语音广播与学生发言)
+- Attention tracking: focus detection, idle tracking, presence checks (注意力追踪：焦点检测、空闲追踪、在线确认)
 
 ## Completion Status / 完成情况
 
@@ -33,8 +34,9 @@ Build a runnable, demoable, and defensible online classroom system with clear ob
 | Statistics & Export | Done | 29 |
 | Screen Sharing | Done | 23 |
 | Audio Broadcast | Done | 35 |
+| Attention Tracking | Done | — (integrated) |
 | Edge Cases | Done | 57 |
-| **Total** | **All 9 modules complete** | **214** |
+| **Total** | **All 10 modules complete** | **214** |
 
 All acceptance checklist items are checked. See `docs/acceptance-checklist.md` for details.
 
@@ -108,18 +110,18 @@ cd build
 
 | Item | Count |
 |------|-------|
-| Source files (.cpp/.h) | 42 |
-| Project files (total, excl. third_party) | 64 |
-| Source code lines | 7,436 |
-| — server/ | 2,169 |
-| — client/ | 2,129 |
-| — common/ | 514 |
+| Source files (.cpp/.h) | 43 |
+| Project files (total, excl. third_party) | 53 |
+| Source code lines | 7,489 |
+| — server/ | ~2,260 |
+| — client/ | ~2,195 |
+| — common/ | ~530 |
 | — tests/ | 2,624 |
-| Documentation lines | 1,070 |
+| Documentation lines | 1,070+ |
 | Third-party (nlohmann/json) | 24,765 |
 | Test suites | 8 |
 | Test cases | 214 |
-| Message types | 40+ |
+| Message types | 45+ |
 
 ## Known Limitations / 已知限制
 
@@ -131,6 +133,7 @@ cd build
 | Passwords | Stored in plaintext (MVP scope) | 明文存储（课程项目范围） |
 | Platform | macOS / Linux only (POSIX sockets) | 仅支持 macOS / Linux |
 | Concurrency | Single-threaded select() loop | 单线程模型 |
+| Attention tracking | In-memory only, not persisted across restarts | 注意力数据仅内存，重启后丢失 |
 
 ## Documentation / 文档
 
@@ -153,29 +156,33 @@ This project was developed with the assistance of **Claude Code** (Claude Opus 4
 - Documentation and defense material preparation
 - Code review, identifying and fixing 17 potential issues
 
-The entire development was completed within a single conversation session (~60 turns).
+The core system was built in one session (~60 turns). Attention tracking was added in a follow-up session (~10 turns).
 
-整个开发过程在一次对话（约 60 轮）中完成。
+核心系统在一次对话（约 60 轮）中完成，注意力追踪在后续对话（约 10 轮）中补充。
 
 ### Token Consumption Estimate / Token 消耗估算
+
+**Session 1 — Full system build (Phases 0–9, ~60 turns)**
 
 | Category | Tokens | Note |
 |----------|--------|------|
 | **Input** | ~1,200,000 | System prompt, file reads, test output, conversation context |
-| — System prompt (per turn) | ~180,000 | ~3,000 × 60 turns |
-| — File reads | ~225,000 | ~15,000 lines read across session |
-| — Test output | ~350,000 | 7 full runs of 214 tests (verbose) |
-| — Context & history | ~250,000 | Conversation history before compression |
-| — Sub-agents (code review) | ~130,000 | 2 exploration agents |
 | **Output** | ~180,000 | Code, docs, conversation responses |
-| — Source code generated | ~111,000 | 7,436 lines |
-| — Documentation | ~21,000 | 1,070 lines |
-| — Conversation text | ~48,000 | Explanations, plans, tables |
 | **Total** | **~1,400,000** | **~140 万 tokens** |
 
-> Rough estimate with ±30% margin. Input tokens dominate (~87%) due to per-turn system prompt loading, file reads, and verbose test output.
+**Session 2 — Attention tracking (Phase 10, ~10 turns)**
+
+| Category | Tokens | Note |
+|----------|--------|------|
+| **Input** | ~280,000 | System prompt, file reads, plan agent, build/test |
+| **Output** | ~25,000 | 406 lines code + responses |
+| **Total** | **~305,000** | **~30 万 tokens** |
+
+**Cumulative total: ~1,705,000 tokens (~170 万)**
+
+> Rough estimates with ±30% margin. Input tokens dominate (~85%) due to per-turn system prompt loading, file reads, and verbose test output.
 >
-> 粗略估算，误差 ±30%。输入 token 占绝大部分（~87%），主要来自每轮系统提示加载、文件读取和测试输出。
+> 粗略估算，误差 ±30%。输入 token 占绝大部分（~85%），主要来自每轮系统提示加载、文件读取和测试输出。
 
 ---
 
